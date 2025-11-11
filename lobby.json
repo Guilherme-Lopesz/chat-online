@@ -1,0 +1,14 @@
+[
+    {
+        "name": "teste",
+        "port": 1,
+        "members": 0,
+        "max": "N/A"
+    },
+    {
+        "name": "Teste",
+        "port": 50001,
+        "members": 0,
+        "max": "N/A"
+    }
+]

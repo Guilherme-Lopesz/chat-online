@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: chat-server
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python servidor.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
