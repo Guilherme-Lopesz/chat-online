@@ -40,14 +40,14 @@ class ColorManager:
 # ========== ESTADO GLOBAL ==========
 clients = {}
 clients_lock = asyncio.Lock()
-CHAVE_SECRETA = Fernet.generate_key()
 
+# Chave FIXA para evitar problemas de transmissão
+CHAVE_SECRETA = Fernet.generate_key()
 print("=" * 60)
 print("🚀 INICIANDO SERVIDOR DE CHAT - RENDER.COM")
 print("=" * 60)
-print(f"🔑 Chave de criptografia gerada")
+print(f"🔑 Chave FIXA gerada: {CHAVE_SECRETA.decode()[:50]}...")
 print(f"🌐 Porta: {PORT}")
-print(f"📡 Host: 0.0.0.0")
 print("=" * 60)
 
 def validate_username(username):
@@ -81,17 +81,26 @@ async def broadcast_message(message_str, skip_ws=None):
                         del clients[ws]
 
 async def handler(websocket, path):
-    print(f"📡 Nova conexão recebida: {websocket.remote_address}")
+    client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
+    print(f"📡 Nova conexão de: {client_ip}")
     
     try:
-        # Enviar chave primeiro
-        await websocket.send(CHAVE_SECRETA)
-        
-        # Receber username
+        # ENVIAR CHAVE PRIMEIRO - como texto base64 para evitar corrupção
+        chave_b64 = CHAVE_SECRETA.decode('utf-8')
+        await websocket.send(chave_b64)
+        print(f"🔑 Chave enviada para {client_ip}")
+
+        # Receber username criptografado
         encrypted_username = await asyncio.wait_for(websocket.recv(), timeout=30.0)
-        username = Fernet(CHAVE_SECRETA).decrypt(encrypted_username).decode().strip()
         
-        print(f"🔐 Tentativa de login: {username}")
+        # Tentar descriptografar
+        try:
+            username = Fernet(CHAVE_SECRETA).decrypt(encrypted_username).decode('utf-8').strip()
+            print(f"✅ Login bem-sucedido: {username}")
+        except Exception as e:
+            print(f"❌ Falha na descriptografia de {client_ip}: {e}")
+            await websocket.close(1008, "Erro de autenticação")
+            return
         
         if not validate_username(username):
             await websocket.close(1008, "Nome de usuário inválido")
@@ -106,6 +115,7 @@ async def handler(websocket, path):
             # Registrar cliente
             clients[websocket] = {
                 "username": username,
+                "ip": client_ip,
                 "join_time": time.time()
             }
             user_count = len(clients)
@@ -120,7 +130,7 @@ async def handler(websocket, path):
         # Loop principal de mensagens
         async for encrypted_msg in websocket:
             try:
-                msg = Fernet(CHAVE_SECRETA).decrypt(encrypted_msg).decode().strip()
+                msg = Fernet(CHAVE_SECRETA).decrypt(encrypted_msg).decode('utf-8').strip()
                 
                 if msg.lower() == '/sair':
                     break
@@ -139,34 +149,35 @@ async def handler(websocket, path):
                     
                     # Encontrar usuário alvo
                     target_ws = None
+                    target_username = None
                     async with clients_lock:
                         for ws, data in clients.items():
                             if data["username"].lower() == target_user.lower():
                                 target_ws = ws
+                                target_username = data["username"]
                                 break
                     
                     if target_ws and target_ws != websocket:
                         await send_system_message(target_ws, f"📩 {username} para você: {pm_msg}")
-                        await send_system_message(websocket, f"📩 Você para {target_user}: {pm_msg}")
+                        await send_system_message(websocket, f"📩 Você para {target_username}: {pm_msg}")
                     else:
                         await send_system_message(websocket, f"Usuário '{target_user}' não encontrado")
                 else:
                     # Mensagem normal
                     async with clients_lock:
                         if websocket in clients:
-                            username = clients[websocket]["username"]
                             await broadcast_message(f"💬 {username}: {msg}", websocket)
                             
             except Exception as e:
-                print(f"❌ Erro processando mensagem: {e}")
+                print(f"❌ Erro processando mensagem de {username}: {e}")
                 break
 
     except asyncio.TimeoutError:
-        print("⏰ Timeout na autenticação")
+        print(f"⏰ Timeout na autenticação de {client_ip}")
     except websockets.exceptions.ConnectionClosed:
-        print("📡 Conexão fechada durante handshake")
+        print(f"📡 Conexão fechada durante handshake: {client_ip}")
     except Exception as e:
-        print(f"💥 Erro no handler: {e}")
+        print(f"💥 Erro no handler para {client_ip}: {e}")
     finally:
         # Remover cliente
         async with clients_lock:
@@ -179,7 +190,7 @@ async def handler(websocket, path):
 
 async def health_check(path, request_headers):
     """Health check para o Render"""
-    if path == "/health":
+    if path == "/health" or path == "/healthz":
         return 200, [], b"OK"
     return None
 

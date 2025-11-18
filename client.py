@@ -40,7 +40,7 @@ async def receive_messages(websocket, chave):
     try:
         async for msg_criptografada in websocket:
             try:
-                msg = Fernet(chave).decrypt(msg_criptografada).decode()
+                msg = Fernet(chave).decrypt(msg_criptografada).decode('utf-8')
                 
                 # Colorir diferentes tipos de mensagem
                 if msg.startswith('[Sistema]'):
@@ -49,20 +49,22 @@ async def receive_messages(websocket, chave):
                     print(ColorManager.info(msg))
                 elif msg.startswith('👉') or msg.startswith('👋'):
                     print(ColorManager.system(msg))
-                else:
+                elif msg.startswith('💬'):
                     print(msg)
+                else:
+                    print(f"📨 {msg}")
                     
             except Exception as e:
-                print(ColorManager.error(f"Erro ao decifrar mensagem"))
+                print(ColorManager.error(f"❌ Erro ao decifrar mensagem: {e}"))
     except websockets.exceptions.ConnectionClosed:
         print(ColorManager.error("\n📡 Conexão com o servidor foi fechada"))
     except Exception as e:
         print(ColorManager.error(f"\n💥 Erro no recebimento: {e}"))
 
 async def main():
-    print("=" * 40)
+    print("=" * 50)
     print("💬 CLIENTE DE CHAT - RENDER.COM")
-    print("=" * 40)
+    print("=" * 50)
     
     try:
         username = input('👤 Digite seu usuário: ').strip()
@@ -81,23 +83,26 @@ async def main():
             close_timeout=10
         ) as websocket:
             
-            # Receber chave do servidor
-            chave_bytes = await websocket.recv()
+            # Receber chave como texto base64
+            chave_b64 = await websocket.recv()
+            chave_bytes = chave_b64.encode('utf-8')  # Converter para bytes
             cipher = Fernet(chave_bytes)
             
+            print(ColorManager.success("🔑 Chave recebida do servidor"))
+            
             # Enviar username criptografado
-            encrypted_username = cipher.encrypt(username.encode())
+            encrypted_username = cipher.encrypt(username.encode('utf-8'))
             await websocket.send(encrypted_username)
             
             print(ColorManager.success("✅ Conectado ao servidor!"))
-            print("\n" + "=" * 40)
-            print("💬 CHAT INICIADO")
-            print("=" * 40)
+            print("\n" + "=" * 50)
+            print("💬 CHAT INICIADO - Digite suas mensagens abaixo")
+            print("=" * 50)
             print("Comandos disponíveis:")
-            print("  /users      - Listar usuários online")
+            print("  /users       - Listar usuários online")
             print("  /pm <user> <msg> - Mensagem privada")
-            print("  /sair       - Sair do chat")
-            print("=" * 40)
+            print("  /sair        - Sair do chat")
+            print("=" * 50)
             print()
             
             # Iniciar task para receber mensagens
@@ -114,14 +119,16 @@ async def main():
                     
                     if msg.lower() == '/sair':
                         print(ColorManager.info("👋 Saindo do chat..."))
+                        encrypted_msg = cipher.encrypt(msg.encode('utf-8'))
+                        await websocket.send(encrypted_msg)
                         break
                     elif msg.strip():
                         # Encriptar e enviar mensagem
-                        encrypted_msg = cipher.encrypt(msg.encode())
+                        encrypted_msg = cipher.encrypt(msg.encode('utf-8'))
                         await websocket.send(encrypted_msg)
             
             except Exception as e:
-                print(ColorManager.error(f"Erro: {e}"))
+                print(ColorManager.error(f"💥 Erro: {e}"))
             
             finally:
                 # Fechar conexão
